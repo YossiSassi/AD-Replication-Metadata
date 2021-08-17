@@ -12,7 +12,9 @@ while ($x=1)
 
 if ($Objects.count -eq 0) {break}
 
-$DCs = Get-ADDomainController -Filter * | Select -ExpandProperty name
+$DCs = Get-ADDomainController -Filter * | Select -ExpandProperty name;
+
+$DateTimeAttribs = "lastlogon", "lastlogonTimestamp", "pwdLastSet";
 
 $ReplMetadata = @();
 
@@ -24,5 +26,5 @@ $Objects | foreach {
     }
 
 $ReplMetadata | sort object, LastOriginatingChangeTime -Descending |  
-    select LastOriginatingChangeTime, attributeName, AttributeValue, Object, Server | 
+    select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}else{$_.AttributeValue}}}, Object, Server | 
         Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
