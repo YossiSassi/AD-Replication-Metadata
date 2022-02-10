@@ -1,14 +1,20 @@
-# Track past changes on your AD objects, even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
+# Get past changes on specific AD accounts (users & computers), even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
-# Version 1.0.1 <Updated for OSDFCon 2021 ("I know what your AD did last summer!.." talk)>
-# comments to yossis@protonmail.com (1nTh35h311)
+#
+# comments to: yossis@protonmail.com (1nTh35h311)
+# Version: 1.0.2
+# Change Log: 
+# v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
+# v1.0.1 - Added offline DB support (Updated for OSDFCon 2021 "I know what your AD did last summer!.." talk)
 
 #$Objects = "administrator", "yossis", "DC01$"
 $Objects = @();
 
+Write-Host "Enter SamAccountName of one or more accounts, one after the other.`nNote: Computer accounts should be followed by a $ sign (e.g. PC90210$)`nWhen finished, hit ENTER to continue." -foregroundcolor Cyan;
+
 while ($x=1)
 {
-    $ObjectToAdd = Read-Host -Prompt "Enter SamAccountName (hit ENTER to finish and view object changes)"
+    $ObjectToAdd = Read-Host -Prompt "Enter SamAccountName (hit ENTER to finish and continue to view object changes)"
     if ($ObjectToAdd -eq "") {break} else {$Objects += $ObjectToAdd}
 }
 
@@ -87,7 +93,7 @@ Function Get-ReplMetadata {
 } # End of Get-ReplMetadata function
 
 # Check if Offline DB query is required
-[string]$OfflineDBPath = Read-Host "To query the current domain - just press <ENTER>.`nTo query an OFFLINE DB BACKUP, please enter the FULL PATH of an ntds.dit file, e.g. c:\temp\ntds.dit`n";
+[string]$OfflineDBPath = Read-Host "To query a LIVE DOMAIN - Press <ENTER>.`nTo query an OFFLINE DB BACKUP, please enter the FULL PATH of an ntds.dit file, e.g. c:\temp\ntds.dit`n";
 
 ### Offline DB Query ###
 if ($OfflineDBPath -ne "")
@@ -226,7 +232,26 @@ else
 
     {
     ### Domain query ###
-    $DCs = Get-ADDomainController -Filter * | Select -ExpandProperty name;
+
+    # Check for ActiveDirectory module
+    if (Get-Module -ListAvailable ActiveDirectory1) {
+        Write-Host "[*] Active Directory Module Found" -ForegroundColor Green;
+        }
+    else
+        {
+            Write-Host "[!] Active Directory Module Not Found (Required for live domain query & attribute value data)." -ForegroundColor Yellow;
+            Write-Host '[*] To Install it, run from an elevated powershell console:';
+            Write-Host '$x = Get-WindowsCapability -Online -Name "Rsat.ActiveDirectory.DS*"; Add-WindowsCapability -Name $x.Name -Online;';
+            Write-Host 'Quiting.' -ForegroundColor Cyan;
+            break;
+        }
+
+    # Enter Domain FQDN to query (Multi-domain support)
+    [string]$DomainDNS = $env:USERDNSDOMAIN;
+    $Domain = Read-Host -Prompt "Enter Domain FQDN/DNS name (Or, hit ENTER to use $($DomainDNS.ToUpper()))";
+    if ($Domain -eq "") {$Domain = $DomainDNS};
+
+    $DCs = Get-ADDomainController -Server $Domain -Filter * | Select -ExpandProperty hostname;
     $RespondingDCs = $DCs | Foreach {if ($(New-Object System.Net.Sockets.TcpClient).ConnectAsync($_,9389).Wait(1000)) {$_}};
     write-host "Found $($RespondingDCs.count) DCs responding to ADWS/9389 (out of $($DCs.count))." -foregroundcolor yellow;
     write-host "Collecting metadata history information from all DCs. this might take a while..." -foregroundcolor cyan;
@@ -238,9 +263,10 @@ else
     $Objects | foreach {
         $account = $_; 
         $ReplMetadata += $RespondingDCs | foreach { 
-            Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $_ 
+            Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Server $Domain -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $_
             }
         }
+
 
     $ReplMetadata | sort object, LastOriginatingChangeTime -Descending |  
         select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}else{$_.AttributeValue}}}, @{n='NumberOfChanges';e={$_.version}}, Object, Server | 
