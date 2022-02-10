@@ -234,8 +234,8 @@ else
     ### Domain query ###
 
     # Check for ActiveDirectory module
-    if (Get-Module -ListAvailable ActiveDirectory1) {
-        Write-Host "[*] Active Directory Module Found" -ForegroundColor Green;
+    if (Get-Module -ListAvailable ActiveDirectory) {
+        #Write-Host "[*] Active Directory Module Found" -ForegroundColor Green;
         }
     else
         {
