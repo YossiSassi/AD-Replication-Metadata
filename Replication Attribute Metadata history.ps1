@@ -2,8 +2,9 @@
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
-# Version: 1.0.2
+# Version: 1.0.3
 # Change Log: 
+# v1.0.3 - Added better parsing for the AccountExpires attribute
 # v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
 # v1.0.1 - Added offline DB support (Updated for OSDFCon 2021 "I know what your AD did last summer!.." talk)
 
@@ -269,6 +270,6 @@ else
 
 
     $ReplMetadata | sort object, LastOriginatingChangeTime -Descending |  
-        select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}else{$_.AttributeValue}}}, @{n='NumberOfChanges';e={$_.version}}, Object, Server | 
+        select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} else {[datetime]::FromFileTime($_.AttributeValue)}} else {$_.AttributeValue}}}, @{n='NumberOfChanges';e={$_.version}}, Object, Server | 
             Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
     }
