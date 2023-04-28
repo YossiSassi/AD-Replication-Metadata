@@ -2,8 +2,9 @@
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
-# Version: 1.0.3
+# Version: 1.0.4
 # Change Log: 
+# v1.0.3 - Minor improvements in sorting countable properties & dates
 # v1.0.3 - Added better parsing for the AccountExpires attribute
 # v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
 # v1.0.1 - Added offline DB support (Updated for OSDFCon 2021 "I know what your AD did last summer!.." talk)
@@ -70,10 +71,10 @@ Function Get-ReplMetadata {
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "DN" -Value $DN -Force;
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "SamAccountName" -Value $SamAccountName -Force;
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "Enabled" -Value $Enabled -Force;
-                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "LastChangeTime" -Value $LastActionDate -Force;
+                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "LastChangeTime" -Value $([datetime]$LastActionDate) -Force;
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "AdminCount" -Value $AdminCount -Force;
-                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "DaysSinceLastChange" -Value $DaysSinceLastAction -Force;
-                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "NumberOfChanges" -Value $ReplValue.DS_REPL_ATTR_META_DATA.dwVersion -Force;
+                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "DaysSinceLastChange" -Value $([int]$DaysSinceLastAction) -Force;
+                Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "NumberOfChanges" -Value $([int]$ReplValue.DS_REPL_ATTR_META_DATA.dwVersion) -Force;
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "AttributeName" -Value $ReplValue.DS_REPL_ATTR_META_DATA.pszAttributeName -Force;
                 Add-Member -InputObject $ChangeObj -MemberType NoteProperty -Name "OriginatingDC" -Value $ReplValue.DS_REPL_ATTR_META_DATA.pszLastOriginatingDsaDN -Force;
 
@@ -154,7 +155,7 @@ if ($OfflineDBPath -ne "")
         if ((New-Object System.Net.Sockets.TcpClient).ConnectAsync('localhost',$BackupInstanceLDAPPort).Wait(1000)) 
 	        {
 	            # if port in use, try a different random port
-                Write-Host "[*] Specified Port <$BackupInstanceLDAPPort> is in use, using a different random port." -ForegroundColor Yellow;
+                Write-Host "[*] Specified Port <$BackupInstanceLDAPPort> is in use, trying a different random port." -ForegroundColor Yellow;
 		        $BackupInstanceLDAPPort = Get-Random -Minimum 49152 -Maximum 65535;
 	        }
 
@@ -225,7 +226,7 @@ if ($OfflineDBPath -ne "")
                         Write-Host -NoNewline "Get-Process dsamain | Stop-Process -Force`n" -ForegroundColor Cyan;
                     }
             }
-        Write-Host "`n[*] Offline DB instance terminated successfully.`n" -ForegroundColor Yellow -NoNewline;
+        Write-Host "`n[*] Offline DB instance terminated successfully.`n" -ForegroundColor Green -NoNewline;
 
     }
 
@@ -270,6 +271,6 @@ else
 
 
     $ReplMetadata | sort object, LastOriginatingChangeTime -Descending |  
-        select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} else {[datetime]::FromFileTime($_.AttributeValue)}} else {$_.AttributeValue}}}, @{n='NumberOfChanges';e={$_.version}}, Object, Server | 
+        select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} else {[datetime]::FromFileTime($_.AttributeValue)}} else {$_.AttributeValue}}}, @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server | 
             Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
     }
