@@ -4,7 +4,7 @@
 # comments to: yossis@protonmail.com (1nTh35h311)
 # Version: 1.0.4
 # Change Log: 
-# v1.0.3 - Minor improvements in sorting countable properties & dates
+# v1.0.4 - Minor improvements in sorting countable properties & dates
 # v1.0.3 - Added better parsing for the AccountExpires attribute
 # v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
 # v1.0.1 - Added offline DB support (Updated for OSDFCon 2021 "I know what your AD did last summer!.." talk)
