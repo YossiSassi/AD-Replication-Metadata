@@ -1,9 +1,11 @@
 # Get past changes on specific AD accounts (users & computers), even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
+# NOTE: If a text file named .\accountnames.txt exists in the same directory with the script, it will read the samaccountname list from that file. if not, you will be prompted to type the name(s) of users or computers.
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
-# Version: 1.0.4
-# Change Log: 
+# Version: 1.0.5
+# Change Log:
+# v1.0.5 - added capability to read samaccountname list from text file (instead of typing one by one into the prompt)
 # v1.0.4 - Minor improvements in sorting countable properties & dates
 # v1.0.3 - Added better parsing for the AccountExpires attribute
 # v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
@@ -12,12 +14,21 @@
 #$Objects = "administrator", "yossis", "DC01$"
 $Objects = @();
 
+# Check if text file with account names exist, and if true - read it and use it
+$AccountnamesFilePath = $(Get-Location).Path + "\accountnames.txt"
+if (Test-Path $AccountnamesFilePath) {
+    $Objects += Get-Content $AccountnamesFilePath | foreach {$_.Trim()} 
+    Write-Host "File accountnames.txt Found, and will be used for list of account to query." -ForegroundColor Green
+}
+
+else {  # accountnames.txt file Not found
 Write-Host "Enter SamAccountName of one or more accounts, one after the other.`nNote: Computer accounts should be followed by a $ sign (e.g. PC90210$)`nWhen finished, hit ENTER to continue." -foregroundcolor Cyan;
 
 while ($x=1)
 {
     $ObjectToAdd = Read-Host -Prompt "Enter SamAccountName (hit ENTER to finish and continue to view object changes)"
     if ($ObjectToAdd -eq "") {break} else {$Objects += $ObjectToAdd}
+}
 }
 
 if ($Objects.count -eq 0) {break}
@@ -250,7 +261,8 @@ else
 
     # Enter Domain FQDN to query (Multi-domain support)
     [string]$DomainDNS = $env:USERDNSDOMAIN;
-    $Domain = Read-Host -Prompt "Enter Domain FQDN/DNS name (Or, hit ENTER to use $($DomainDNS.ToUpper()))";
+    Write-Host -NoNewline "Type Domain FQDN/DNS name (Or, hit ENTER to use "; Write-Host $($DomainDNS.ToUpper()) -NoNewline -ForegroundColor Cyan; Write-Host ")";
+    $Domain = Read-Host;
     if ($Domain -eq "") {$Domain = $DomainDNS};
 
     $DCs = Get-ADDomainController -Server $Domain -Filter * | Select -ExpandProperty hostname;
