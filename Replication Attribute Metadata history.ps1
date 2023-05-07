@@ -1,10 +1,12 @@
 # Get past changes on specific AD accounts (users & computers), even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
-# NOTE: If a text file named .\accountnames.txt exists in the same directory with the script, it will read the samaccountname list from that file. if not, you will be prompted to type the name(s) of users or computers.
+# IMPORTANT NOTE: If a text file named .\accountnames.txt exists in the same directory with the script, it will read the samaccountname list from that file. if not, you will be prompted to type the name(s) of users or computers.
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
-# Version: 1.0.5
+#
+# Version: 1.0.6
 # Change Log:
+# v1.0.6 - added csv output + better display of LAPS password expiration & serviceprincipalname
 # v1.0.5 - added capability to read samaccountname list from text file (instead of typing one by one into the prompt)
 # v1.0.4 - Minor improvements in sorting countable properties & dates
 # v1.0.3 - Added better parsing for the AccountExpires attribute
@@ -18,7 +20,7 @@ $Objects = @();
 $AccountnamesFilePath = $(Get-Location).Path + "\accountnames.txt"
 if (Test-Path $AccountnamesFilePath) {
     $Objects += Get-Content $AccountnamesFilePath | foreach {$_.Trim()} 
-    Write-Host "File accountnames.txt Found, and will be used for list of account to query." -ForegroundColor Green
+    Write-Host "[!] File accountnames.txt Found, and will be used for list of account to query." -ForegroundColor Green
 }
 
 else {  # accountnames.txt file Not found
@@ -217,9 +219,17 @@ if ($OfflineDBPath -ne "")
 
         if ($ReplMetadata)
             {
-                $ReplMetadata | sort SamAccountName, LastChangeTime -Descending |  
-                    select LastChangeTime,DaysSinceLastChange,AttributeName,NumberOfChanges,SamAccountName,DN,Enabled,AdminCount,OriginatingDC |
-                        Out-GridView -Title "Replication Attribute Metadata history from BACKUP DATED $OfflineDBDateTime for $($Objects.toupper())"
+                # Prepare and sort data
+                $Data = $ReplMetadata | select LastChangeTime,DaysSinceLastChange,AttributeName,NumberOfChanges,SamAccountName,DN,Enabled,AdminCount,OriginatingDC;
+                # save to csv 
+                [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
+                $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
+                if ($?)
+                    {
+                        Write-Host '[x] Results saved to semicolon-delimited (";") CSV file -> ' -NoNewline -ForegroundColor Green; Write-Host $CSVfile -ForegroundColor Cyan;
+                    }
+                # show grid
+                $Data | sort SamAccountName, LastChangeTime -Descending | Out-GridView -Title "Replication Attribute Metadata history from BACKUP DATED $OfflineDBDateTime for $($Objects.toupper())";
             }
 
         # Terminate offline DB instance listener
@@ -267,10 +277,10 @@ else
 
     $DCs = Get-ADDomainController -Server $Domain -Filter * | Select -ExpandProperty hostname;
     $RespondingDCs = $DCs | Foreach {if ($(New-Object System.Net.Sockets.TcpClient).ConnectAsync($_,9389).Wait(1000)) {$_}};
-    write-host "Found $($RespondingDCs.count) DCs responding to ADWS/9389 (out of $($DCs.count))." -foregroundcolor yellow;
-    write-host "Collecting metadata history information from all DCs. this might take a while..." -foregroundcolor cyan;
+    write-host "[x] Found $($RespondingDCs.count) DCs responding to ADWS/9389 (out of $($DCs.count))." -foregroundcolor yellow;
+    write-host "[!] Collecting metadata history information from all DCs. this might take a while..." -foregroundcolor cyan;
 
-    $DateTimeAttribs = "lastlogon", "lastlogonTimestamp", "pwdLastSet";
+    $DateTimeAttribs = "lastlogon", "lastlogonTimestamp", "pwdLastSet", "ms-Mcs-AdmPwdExpirationTime";
 
     $ReplMetadata = @();
 
@@ -281,8 +291,20 @@ else
             }
         }
 
-
-    $ReplMetadata | sort object, LastOriginatingChangeTime -Descending |  
-        select LastOriginatingChangeTime, attributeName, @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} else {[datetime]::FromFileTime($_.AttributeValue)}} else {$_.AttributeValue}}}, @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server | 
-            Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
+    # prepare data
+    $Data = $ReplMetadata | select LastOriginatingChangeTime, attributeName, 
+        @{n='AttributeValue';e={if ($_.attributeName -in $DateTimeAttribs){[datetime]::FromFileTime($_.AttributeValue)}
+        elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} 
+        else {[datetime]::FromFileTime($_.AttributeValue)}} elseif ($_.attributename -eq "servicePrincipalName") {"$($_.attributevalue)"} else {$_.AttributeValue}}},
+         @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server;
+    # save to csv 
+    [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
+    $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
+    if ($?)
+        {
+             Write-Host '[x] Results saved to semicolon-delimited (";") CSV file -> ' -NoNewline -ForegroundColor Green; Write-Host $CSVfile -ForegroundColor Cyan;
+        } 
+    # show grid
+    $Data | sort object, LastOriginatingChangeTime -Descending | 
+        Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
     }
