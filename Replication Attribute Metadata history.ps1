@@ -222,7 +222,7 @@ if ($OfflineDBPath -ne "")
                 # Prepare and sort data
                 $Data = $ReplMetadata | select LastChangeTime,DaysSinceLastChange,AttributeName,NumberOfChanges,SamAccountName,DN,Enabled,AdminCount,OriginatingDC;
                 # save to csv 
-                [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
+                [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddMMyyyy).csv";
                 $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
                 if ($?)
                     {
@@ -298,7 +298,7 @@ else
         else {[datetime]::FromFileTime($_.AttributeValue)}} elseif ($_.attributename -eq "servicePrincipalName") {"$($_.attributevalue)"} else {$_.AttributeValue}}},
          @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server;
     # save to csv 
-    [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
+    [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddMMyyyy).csv";
     $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
     if ($?)
         {
