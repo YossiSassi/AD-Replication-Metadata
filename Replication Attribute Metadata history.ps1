@@ -4,8 +4,9 @@
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
 #
-# Version: 1.0.6
+# Version: 1.0.7
 # Change Log:
+# v1.0.7 - added non-replicated attributes to LIVE Domain query - LogonCount, Lastlogon, BadPasswordCount & BadpasswordTime
 # v1.0.6 - added csv output + better display of LAPS password expiration & serviceprincipalname
 # v1.0.5 - added capability to read samaccountname list from text file (instead of typing one by one into the prompt)
 # v1.0.4 - Minor improvements in sorting countable properties & dates
@@ -66,6 +67,14 @@ Function Get-ReplMetadata {
             #$Enabled = if ($ObjMember.Properties.useraccountcontrol -eq 514 -or $ObjMember.Properties.useraccountcontrol -eq 66050) {"False"} else {"True"}
 	        $Enabled = if ($($AccountObj.Properties.useraccountcontrol) -band "0x2") {"False"} else {"True"}
             $DN = $AccountObj.Properties.distinguishedname -join ',';
+            
+            <#
+            To be added later ->> Non-Replicated attributes for OFFLINE operations
+            $LogonCount = $AccountObj.Properties.logoncount -join ',';
+            $LastLogon = [datetime]::FromFileTime($($AccountObj.Properties.lastlogon));
+            $BadPwdCount = $AccountObj.Properties.badpwdcount -join ',';
+            $BadPwdTime = [datetime]::FromFileTime($($AccountObj.Properties.badpwdtime));
+            #>
 
             if ($ReplMetaData) {
 
@@ -222,7 +231,7 @@ if ($OfflineDBPath -ne "")
                 # Prepare and sort data
                 $Data = $ReplMetadata | select LastChangeTime,DaysSinceLastChange,AttributeName,NumberOfChanges,SamAccountName,DN,Enabled,AdminCount,OriginatingDC;
                 # save to csv 
-                [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddMMyyyy).csv";
+                [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
                 $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
                 if ($?)
                     {
@@ -280,16 +289,71 @@ else
     write-host "[x] Found $($RespondingDCs.count) DCs responding to ADWS/9389 (out of $($DCs.count))." -foregroundcolor yellow;
     write-host "[!] Collecting metadata history information from all DCs. this might take a while..." -foregroundcolor cyan;
 
-    $DateTimeAttribs = "lastlogon", "lastlogonTimestamp", "pwdLastSet", "ms-Mcs-AdmPwdExpirationTime";
+    $DateTimeAttribs = "lastlogonTimestamp", "pwdLastSet", "ms-Mcs-AdmPwdExpirationTime";
 
     $ReplMetadata = @();
 
     $Objects | foreach {
         $account = $_; 
         $ReplMetadata += $RespondingDCs | foreach { 
-            Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Server $Domain -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $_
-            }
-        }
+            Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Server $Domain -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $_;
+
+            # get other properties, from Non-Replicated attributes
+            $Obj = if ($account.EndsWith('$')) {Get-ADComputer $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $_} else {Get-ADUser $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $_}
+            $DN = $Obj.distinguishedname;
+
+            # get values of non-replicated attributes per this DC
+            [int]$LogonCount = $Obj.logoncount;
+            $LastLogon = [datetime]::FromFileTime($($Obj.lastlogon));
+            [int]$BadPwdCount = $Obj.badpwdcount;
+            $BadPwdTime = [datetime]::FromFileTime($($Obj.badpasswordtime));
+
+            # handle logonCount
+            $NonReplicatedDataObj = New-Object psobject;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name LastOriginatingChangeTime -Value 'N/A (Non-Replicated attribute)' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name attributeName -Value "LogonCount" -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $LogonCount -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            $NonReplicatedDataObj | Write-Output;
+            Clear-Variable NonReplicatedDataObj;
+
+            # handle lastLogon
+            $NonReplicatedDataObj = New-Object psobject;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name LastOriginatingChangeTime -Value 'N/A (Non-Replicated attribute)' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name attributeName -Value "LastLogon" -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $LastLogon -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            $NonReplicatedDataObj | Write-Output;
+            Clear-Variable NonReplicatedDataObj;
+
+            # handle BadpwdCount
+            $NonReplicatedDataObj = New-Object psobject;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name LastOriginatingChangeTime -Value 'N/A (Non-Replicated attribute)' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name attributeName -Value "BadPasswordCount" -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $BadPwdCount -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            $NonReplicatedDataObj | Write-Output;
+            Clear-Variable NonReplicatedDataObj;
+
+            # handle BadpwdTime
+            $NonReplicatedDataObj = New-Object psobject;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name LastOriginatingChangeTime -Value 'N/A (Non-Replicated attribute)' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name attributeName -Value "BadPasswordTime" -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $BadPwdTime -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            $NonReplicatedDataObj | Write-Output;
+            Clear-Variable NonReplicatedDataObj, LastLogon, LogonCount, BadPwdCount, BadPwdTime -ErrorAction SilentlyContinue;
+
+            } # end of current DC data collection
+        } # end of current object/account data collection
 
     # prepare data
     $Data = $ReplMetadata | select LastOriginatingChangeTime, attributeName, 
@@ -298,12 +362,18 @@ else
         else {[datetime]::FromFileTime($_.AttributeValue)}} elseif ($_.attributename -eq "servicePrincipalName") {"$($_.attributevalue)"} else {$_.AttributeValue}}},
          @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server;
     # save to csv 
-    [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddMMyyyy).csv";
+    [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
     $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
+    
     if ($?)
         {
              Write-Host '[x] Results saved to semicolon-delimited (";") CSV file -> ' -NoNewline -ForegroundColor Green; Write-Host $CSVfile -ForegroundColor Cyan;
-        } 
+        }
+    else
+        {
+             Write-Warning "An error occured while saving to CSV file -> $CSVfile";
+        }
+
     # show grid
     $Data | sort object, LastOriginatingChangeTime -Descending | 
         Out-GridView -Title "Replication Attribute Metadata history for $($Objects.toupper())"
