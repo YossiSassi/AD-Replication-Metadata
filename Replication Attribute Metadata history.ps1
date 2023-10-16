@@ -6,6 +6,7 @@
 #
 # Version: 1.1
 # Change Log:
+# v1.1a - Added practical examples on how to use this script in the field, by creating custom accountnames.txt file(s)
 # v1.1 - BadPasswordTime updated in LastOriginatingChangeTime + fixed out-gridview display bug in offline operations for attributevalue
 # v1.0.9 - minor update to LastChangeTime for LastLogon
 # v1.0.8 - added non-replicated attributes to OFFLINE operations (LogonCount, Lastlogon, BadPasswordCount & BadpasswordTime)
@@ -16,6 +17,29 @@
 # v1.0.3 - Added better parsing for the AccountExpires attribute
 # v1.0.2 - Added multi-Domain support, and check for AD module for live domain query.
 # v1.0.1 - Added offline DB support (Updated for OSDFCon 2021 "I know what your AD did last summer!.." talk)
+
+<#
+## Examples on how to create custom accountnames.txt file(s)
+# Create an accounts file that will query changes for all administrative users (adminCount=1)
+# 1st, query the account names and save to text file
+$a = ([adsisearcher]'(&(ObjectCategory=Person)(ObjectClass=User)(admincount=1)(!(samaccountname=krbtgt)))').FindAll();
+$a.Properties.samaccountname | sort | Out-File .\accountnames.txt 
+
+# 2nd, Run the script, from the same directory as the accountnames.txt file
+
+# 3rd, Identify the output csv file, e.g. ad-repl*, and import it to memory
+# import csv
+$res = import-csv .\AD-Replication-Metadata-History_11001510002023.csv -Delimiter ";"
+
+# 4th - group it by objects
+$grouped = $res | group Object
+
+# 5th - ensure you have the object you want to query/examine
+$grouped | where Name -like "cn=administrator,*"
+
+# 6th, Can also get specific data, e.g. Total logons for this account (from all DCs, summed up)
+$grouped | where Name -like "cn=administrator,*" | select -ExpandProperty group | where AttributeName -eq "LogonCount" | Measure-Object -Property attributevalue -Sum | select -ExpandProperty Sum
+#>
 
 #$Objects = "administrator", "yossis", "DC01$"
 $Objects = @();
