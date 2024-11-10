@@ -1,11 +1,12 @@
-# Get past changes on specific AD accounts (users & computers), even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
+# Get past changes on specific AD accounts (users, computers) and Groups (online DC *only*), even if event logs were wiped (e.g. during an Incident Response), using Replication metadata history. No special permissions needed for Live AD query (no admin required), unless when using Offline DB (needed to port bind for LDAP queries of loaded DB in memory).
 # Requires ActiveDirectory Module *ONLY* when querying a live Domain Controller <in order to get attribute value(!)>
 # IMPORTANT NOTE: If a text file named .\accountnames.txt exists in the same directory with the script, it will read the samaccountname list from that file. if not, you will be prompted to type the name(s) of users or computers.
 #
 # comments to: yossis@protonmail.com (1nTh35h311)
 #
-# Version: 1.1
+# Version: 1.2
 # Change Log:
+# v1.2 - Added support for group objects, for online mode only
 # v1.1a - Added practical examples on how to use this script in the field, by creating custom accountnames.txt file(s)
 # v1.1 - BadPasswordTime updated in LastOriginatingChangeTime + fixed out-gridview display bug in offline operations for attributevalue
 # v1.0.9 - minor update to LastChangeTime for LastLogon
@@ -52,11 +53,11 @@ if (Test-Path $AccountnamesFilePath) {
 }
 else {  # accountnames.txt file Not found
 Write-Warning "File $AccountnamesFilePath was not found. To automatically query multiple accounts, please create it.";
-Write-Host "Enter SamAccountName of one or more accounts, one after the other.`nNote: Computer accounts should be followed by a $ sign (e.g. PC90210$)`nWhen finished, hit ENTER to continue." -foregroundcolor Cyan;
+Write-Host "Type the SamAccountName of one or more accounts (or group), one after the other." -NoNewline -ForegroundColor Cyan; Write-Host "`nNote: Computer accounts should be followed by a $ sign (e.g. PC90210$)" -NoNewline -ForegroundColor Yellow; Write-Host "`nWhen finished, hit ENTER to continue." -foregroundcolor Cyan;
 
 while ($x=1)
 {
-    $ObjectToAdd = Read-Host -Prompt "[!] Enter SamAccountName (hit ENTER to finish and continue to view object changes)"
+    $ObjectToAdd = Read-Host -Prompt "[!] Type SamAccountName, OR hit ENTER to finish and continue to view object changes"
     if ($ObjectToAdd -eq "") {break} else {$Objects += $ObjectToAdd}
 }
 }
@@ -391,13 +392,23 @@ else
     $Objects | foreach {
         $account = $_; 
         $ReplMetadata += $RespondingDCs | foreach { 
-            Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Server $Domain -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $_;
+            $DC = $_;
+            $ReplOutput = Get-ADReplicationAttributeMetadata -Object $((Get-ADObject -Server $Domain -Filter {samaccountname -eq $account} -IncludeDeletedObjects).distinguishedname) -ShowAllLinkedValues -Server $DC;
+            $ReplOutput | Write-Output;
 
             # get other properties, from Non-Replicated attributes
-            $Obj = if ($account.EndsWith('$')) {Get-ADComputer $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $_} else {Get-ADUser $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $_}
+            $ObjCategory = $ReplOutput | Where-Object attributename -eq "ObjectCategory" | select -ExpandProperty attributevalue;
+
+            switch ($ObjCategory) {
+            {$_.StartsWith("CN=Computer")} {$Obj = Get-ADComputer $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $DC; [boolean]$IsGroup = $false}
+            {$_.StartsWith("CN=Person")} {$Obj = Get-ADUser $account -Properties logoncount,lastlogon,badpwdcount,badpasswordtime -Server $DC; [boolean]$IsGroup = $false}
+            {$_.StartsWith("CN=Group")} {$Obj = Get-ADGroup $account -Server $DC; [boolean]$IsGroup = $true}
+            }
+
             $DN = $Obj.distinguishedname;
 
             # get values of non-replicated attributes per this DC
+            if (!$IsGroup) {
             [int]$LogonCount = $Obj.logoncount;
             $LastLogon = [datetime]::FromFileTime($($Obj.lastlogon));
             if ($LastLogon -eq "Monday, January 1, 1601 02:00:00") {$LastLogon = $null} # in case value was 1/1/1601 02:00:00
@@ -412,7 +423,7 @@ else
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $LogonCount -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
-            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $DC -Force;
             $NonReplicatedDataObj | Write-Output;
             Clear-Variable NonReplicatedDataObj;
 
@@ -423,7 +434,7 @@ else
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $LastLogon -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
-            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $DC -Force;
             $NonReplicatedDataObj | Write-Output;
             Clear-Variable NonReplicatedDataObj;
 
@@ -434,7 +445,7 @@ else
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $BadPwdCount -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
-            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $DC -Force;
             $NonReplicatedDataObj | Write-Output;
             Clear-Variable NonReplicatedDataObj;
 
@@ -445,11 +456,11 @@ else
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name AttributeValue -Value $BadPwdTime -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name version -Value 'N/A' -Force;
             Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Object -Value $DN -Force;
-            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $_ -Force;
+            Add-Member -InputObject $NonReplicatedDataObj -MemberType NoteProperty -Name Server -Value $DC -Force;
             $NonReplicatedDataObj | Write-Output;
             Clear-Variable NonReplicatedDataObj, LastLogon, LogonCount, BadPwdCount, BadPwdTime -ErrorAction SilentlyContinue;
-
-            } # end of current DC data collection
+            } # end of non-replicated attributes (Person/Computer only)
+          } # end of current DC data collection
         } # end of current object/account data collection
 
     # prepare data
@@ -458,6 +469,7 @@ else
         elseif ($_.attributename -eq "AccountExpires") {if ($_.attributevalue -eq '9223372036854775807') {"Never Expires"} 
         else {[datetime]::FromFileTime($_.AttributeValue)}} elseif ($_.attributename -eq "servicePrincipalName") {"$($_.attributevalue)"} else {$_.AttributeValue}}},
          @{n='NumberOfChanges';e={[int]$_.version}}, Object, Server;
+    
     # save to csv 
     [string]$CSVfile = $(Get-Location).Path + "\AD-Replication-Metadata-History_$(Get-Date -Format HHmmssddmmyyyy).csv";
     $Data | Export-Csv -Delimiter ";" $CSVfile -Encoding UTF8 -NoTypeInformation;
