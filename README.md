@@ -1,4 +1,4 @@
-Track past changes in your AD accounts (users & computers), even if no event logs exist - e.g. not collected, no retention/overwritten, wiped (e.g. during an Incident Response) etc. 
+Track past changes in your AD accounts (users, computers) and Groups (online DC *only*), even if no event logs exist - e.g. not collected, no retention/overwritten, wiped (e.g. during an Incident Response) etc. 
 Uses Replication metadata history parsing.
 
 No special permissions required (non-admin AD user is ok).
